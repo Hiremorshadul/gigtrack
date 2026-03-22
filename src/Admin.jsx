@@ -15,8 +15,18 @@ export default function Admin({ adminUser, onSignOut }) {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState(null);
+    const [resetMsg, setResetMsg] = useState({});
 
     useEffect(() => { loadAll(); }, []);
+
+    const sendResetEmail = async (e, userId, email) => {
+        e.stopPropagation();
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin,
+        });
+        setResetMsg(prev => ({ ...prev, [userId]: error ? "error" : "sent" }));
+        setTimeout(() => setResetMsg(prev => { const n = { ...prev }; delete n[userId]; return n; }), 4000);
+    };
 
     const loadAll = async () => {
         setLoading(true);
@@ -186,6 +196,21 @@ export default function Admin({ adminUser, onSignOut }) {
 
                         <div style={{ textAlign: "right", marginTop: 8, fontSize: 11, color: "#D1D5DB" }}>
                             {expanded === u.id ? "▲ collapse" : "▼ expand"}
+                        </div>
+
+                        {/* Reset password — always visible per user */}
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #F9FAFB", display: "flex", justifyContent: "flex-end" }}
+                            onClick={e => e.stopPropagation()}>
+                            {resetMsg[u.id] === "sent" ? (
+                                <span style={{ fontSize: 12, color: "#16A34A", fontWeight: 500 }}>✓ Reset email sent to {u.email}</span>
+                            ) : resetMsg[u.id] === "error" ? (
+                                <span style={{ fontSize: 12, color: "#DC2626" }}>Failed — try again</span>
+                            ) : (
+                                <button onClick={(e) => sendResetEmail(e, u.id, u.email)}
+                                    style={{ background: "none", border: "1px solid #FECACA", borderRadius: 8, padding: "5px 12px", fontSize: 12, color: "#DC2626", cursor: "pointer", fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>
+                                    🔑 Send Password Reset
+                                </button>
+                            )}
                         </div>
                     </Card>
                 ))}
