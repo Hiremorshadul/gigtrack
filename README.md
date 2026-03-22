@@ -2,7 +2,7 @@
 
 > Delivery earnings tracker for gig workers — built for Glovo, Uber Eats & Bolt.
 
-**Live at:** [gigtrack.netlify.app](https://gigtrack.netlify.app)  
+**Live at:** [zingy-griffin-ab9195.netlify.app](https://zingy-griffin-ab9195.netlify.app/)  
 **Built by:** [Morshadul](https://morshadul.eu/) · Lisbon, Portugal 🇵🇹
 
 ---
