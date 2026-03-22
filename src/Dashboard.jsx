@@ -10,12 +10,7 @@ const DEDUCTED = ["Uber Eats", "Bolt"];
 const PLATFORMS = ["Glovo", "Uber Eats", "Bolt"];
 const EXP_CATS = ["Fuel / Oil", "Maintenance", "Repair", "Platform Fee", "Accessories / Tags", "Other"];
 
-const INVESTMENT = [
-    { id: "scooter", label: "Scooter", amount: 850, icon: "🛵" },
-    { id: "insurance", label: "Insurance", amount: 165, icon: "🛡️" },
-    { id: "registration", label: "Registration", amount: 75, icon: "📋" },
-];
-const TOTAL_INV = INVESTMENT.reduce((s, i) => s + i.amount, 0);
+const INV_ICONS = ["🛵", "🛡️", "📋", "🔧", "📱", "⛽", "🪖", "🎒", "💻", "🔑"];
 
 const PCOL = {
     "Glovo": { bg: "#FEF3C7", text: "#92400E", dot: "#F59E0B", chart: "#F59E0B" },
@@ -35,7 +30,6 @@ const uid = () => crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(
 
 // ─── Global CSS ───────────────────────────────────────────────────────────────
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:wght@700&display=swap');
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
   body { background:#F5F4F0; font-family:'DM Sans',sans-serif; -webkit-font-smoothing:antialiased; }
   input,select,button { font-family:'DM Sans',sans-serif; }
@@ -132,18 +126,22 @@ const ChartTip = ({ active, payload, label }) => {
 export default function Dashboard({ user, onSignOut }) {
     const [earnings, setEarnings] = useState([]);
     const [expenses, setExpenses] = useState([]);
+    const [investments, setInvestments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [tab, setTab] = useState("overview");
     const [toast, setToast] = useState(null);
     const [chartView, setChartView] = useState("weekly");
     const [earnModal, setEarnModal] = useState(null);
     const [expModal, setExpModal] = useState(null);
+    const [invModal, setInvModal] = useState(null);
     const [confirmDel, setConfirmDel] = useState(null);
 
     const blankE = { weekLabel: "", dateFrom: now(), platform: "Glovo", gross: "", hours: "", note: "" };
     const blankX = { date: now(), category: "Fuel / Oil", amount: "", note: "", pending: false };
+    const blankI = { label: "", amount: "", icon: "🛵", note: "", date: now() };
     const [eF, setEF] = useState(blankE);
     const [xF, setXF] = useState(blankX);
+    const [iF, setIF] = useState(blankI);
 
     const notify = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 2400); };
 
@@ -151,13 +149,15 @@ export default function Dashboard({ user, onSignOut }) {
     useEffect(() => {
         (async () => {
             setLoading(true);
-            const [{ data: e, error: eErr }, { data: x, error: xErr }] = await Promise.all([
+            const [{ data: e, error: eErr }, { data: x, error: xErr }, { data: inv, error: invErr }] = await Promise.all([
                 supabase.from("earnings").select("*").eq("user_id", user.id).order("date"),
                 supabase.from("expenses").select("*").eq("user_id", user.id).order("date"),
+                supabase.from("investments").select("*").eq("user_id", user.id).order("date"),
             ]);
-            if (eErr || xErr) notify("Failed to load data", false);
+            if (eErr || xErr || invErr) notify("Failed to load data", false);
             setEarnings(e || []);
             setExpenses(x || []);
+            setInvestments(inv || []);
             setLoading(false);
         })();
     }, [user.id]);
@@ -202,12 +202,37 @@ export default function Dashboard({ user, onSignOut }) {
         setXF(blankX);
     };
 
-    // ── Delete ──
+    // ── Investment CRUD ──
+    const saveInvestment = async () => {
+        if (!iF.label.trim()) return notify("Enter a label", false);
+        if (!iF.amount || isNaN(iF.amount)) return notify("Enter a valid amount", false);
+        const entry = { ...iF, amount: Number(iF.amount) };
+        if (invModal === "add") {
+            const newEntry = { ...entry, id: uid(), user_id: user.id };
+            setInvestments(prev => [...prev, newEntry]);
+            setInvModal(null); notify("Investment added ✓");
+            const { error } = await supabase.from("investments").insert(newEntry);
+            if (error) { setInvestments(prev => prev.filter(i => i.id !== newEntry.id)); notify("Failed to save", false); }
+        } else {
+            const updated = { ...entry, id: invModal.id, user_id: user.id };
+            setInvestments(prev => prev.map(i => i.id === invModal.id ? updated : i));
+            setInvModal(null); notify("Investment updated ✓");
+            const { error } = await supabase.from("investments").update(entry).eq("id", invModal.id);
+            if (error) notify("Failed to update — refresh page", false);
+        }
+        setIF(blankI);
+    };
+
+    const openAddInv = () => { setIF(blankI); setInvModal("add"); };
+    const openEditInv = (i) => { setIF({ ...i, amount: String(i.amount) }); setInvModal(i); };
+
+    // ── Delete (handles all 3 types) ──
     const askDelete = (type, id, label) => setConfirmDel({ type, id, label });
     const doDelete = async () => {
         const { type, id } = confirmDel;
         if (type === "earnings") setEarnings(prev => prev.filter(e => e.id !== id));
-        else setExpenses(prev => prev.filter(e => e.id !== id));
+        else if (type === "expenses") setExpenses(prev => prev.filter(e => e.id !== id));
+        else setInvestments(prev => prev.filter(i => i.id !== id));
         setConfirmDel(null); notify("Removed");
         await supabase.from(type).delete().eq("id", id);
     };
@@ -218,6 +243,7 @@ export default function Dashboard({ user, onSignOut }) {
     const openEditExp = (e) => { setXF({ ...e, amount: String(e.amount) }); setExpModal(e); };
 
     // ── Derived ──
+    const TOTAL_INV = investments.reduce((s, i) => s + i.amount, 0);
     const allNet = earnings.map(e => ({ ...e, netAmt: netOf(e.gross, e.platform) }));
     const totalGross = earnings.reduce((s, e) => s + e.gross, 0);
     const totalNet = allNet.reduce((s, e) => s + e.netAmt, 0);
@@ -670,32 +696,73 @@ export default function Dashboard({ user, onSignOut }) {
                 {/* ════ INVESTMENT ════ */}
                 {tab === "investment" && (
                     <div className="page">
-                        <div style={{ background: "linear-gradient(135deg,#D97706,#B45309)", borderRadius: 20, padding: "24px", marginBottom: 12, color: "#fff" }}>
+                        {/* Hero — dynamic total */}
+                        <div style={{ background: "linear-gradient(135deg,#D97706,#B45309)", borderRadius: 20, padding: "24px", marginBottom: 12, color: "#fff", position: "relative", overflow: "hidden" }}>
+                            <div style={{ position: "absolute", top: -20, right: -20, width: 100, height: 100, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
                             <div style={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.7)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Total Invested</div>
-                            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 40, fontWeight: 700, letterSpacing: "-1px" }}>{fmt(TOTAL_INV)}</div>
+                            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 40, fontWeight: 700, letterSpacing: "-1px" }}>
+                                {TOTAL_INV > 0 ? fmt(TOTAL_INV) : "€0,00"}
+                            </div>
+                            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 6 }}>
+                                {investments.length} item{investments.length !== 1 ? "s" : ""} · click to add your costs below
+                            </div>
                         </div>
-                        {INVESTMENT.map(i => (
-                            <Card key={i.id} style={{ padding: "16px 20px" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                                        <div style={{ width: 40, height: 40, borderRadius: 12, background: "#FFFBEB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{i.icon}</div>
-                                        <div><div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{i.label}</div><div style={{ fontSize: 12, color: "#9CA3AF" }}>One-time</div></div>
-                                    </div>
-                                    <div style={{ fontFamily: "'Fraunces',serif", fontSize: 20, fontWeight: 700, color: "#D97706" }}>{fmt(i.amount)}</div>
+
+                        {/* Add button */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                            <div style={{ fontSize: 13, color: "#6B7280" }}>
+                                {investments.length === 0 ? "Start by adding your scooter, insurance, registration…" : `${investments.length} investment${investments.length !== 1 ? "s" : ""}`}
+                            </div>
+                            <Btn onClick={openAddInv} color="#D97706" style={{ padding: "9px 16px", fontSize: 13 }}>＋ Add</Btn>
+                        </div>
+
+                        {/* List */}
+                        {investments.length === 0 ? (
+                            <Card>
+                                <Empty msg="No investments yet — add your scooter, insurance, registration and anything else you spent to get started" />
+                                <div style={{ textAlign: "center", marginTop: 8 }}>
+                                    <Btn onClick={openAddInv} color="#D97706">＋ Add First Investment</Btn>
                                 </div>
                             </Card>
-                        ))}
-                        <Card>
-                            <SecTitle>Recovery Progress</SecTitle>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, fontSize: 13 }}>
-                                <span style={{ color: "#16A34A", fontWeight: 500 }}>Recovered: {fmt(totalNet)}</span>
-                                <span style={{ color: "#DC2626", fontWeight: 500 }}>Still need: {fmt(Math.max(TOTAL_INV - totalNet, 0))}</span>
-                            </div>
-                            <div style={{ background: "#F3F4F6", borderRadius: 999, height: 12, overflow: "hidden", marginBottom: 8 }}>
-                                <div style={{ height: "100%", width: `${roiPct}%`, background: "linear-gradient(90deg,#D97706,#16A34A)", borderRadius: 999, transition: "width 0.6s" }} />
-                            </div>
-                            <div style={{ textAlign: "center", fontSize: 13, color: "#6B7280" }}>{roiPct.toFixed(1)}% of {fmt(TOTAL_INV)} recovered</div>
-                        </Card>
+                        ) : (
+                            <Card>
+                                {investments.map((inv, i, arr) => (
+                                    <div key={inv.id} className="row-hover" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 8px", borderBottom: i < arr.length - 1 ? "1px solid #F3F4F6" : "none", transition: "background 0.12s" }}>
+                                        <div style={{ display: "flex", gap: 12, alignItems: "center", flex: 1 }}>
+                                            <div style={{ width: 40, height: 40, borderRadius: 12, background: "#FFFBEB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{inv.icon || "📦"}</div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{inv.label}</div>
+                                                <div style={{ fontSize: 11, color: "#9CA3AF" }}>
+                                                    {inv.date}{inv.note ? ` · ${inv.note}` : ""}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                                            <div style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 700, color: "#D97706" }}>{fmt(inv.amount)}</div>
+                                            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 3 }}>
+                                                <button className="row-action" onClick={() => openEditInv(inv)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#9CA3AF", padding: 0 }}>edit</button>
+                                                <button className="row-del" onClick={() => askDelete("investments", inv.id, `${inv.label} – ${fmt(inv.amount)}`)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#9CA3AF", padding: 0 }}>remove</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </Card>
+                        )}
+
+                        {/* Recovery progress */}
+                        {TOTAL_INV > 0 && (
+                            <Card>
+                                <SecTitle>Recovery Progress</SecTitle>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, fontSize: 13 }}>
+                                    <span style={{ color: "#16A34A", fontWeight: 500 }}>Recovered: {fmt(totalNet)}</span>
+                                    <span style={{ color: "#DC2626", fontWeight: 500 }}>Still need: {fmt(Math.max(TOTAL_INV - totalNet, 0))}</span>
+                                </div>
+                                <div style={{ background: "#F3F4F6", borderRadius: 999, height: 12, overflow: "hidden", marginBottom: 8 }}>
+                                    <div style={{ height: "100%", width: `${roiPct}%`, background: "linear-gradient(90deg,#D97706,#16A34A)", borderRadius: 999, transition: "width 0.6s" }} />
+                                </div>
+                                <div style={{ textAlign: "center", fontSize: 13, color: "#6B7280" }}>{roiPct.toFixed(1)}% of {fmt(TOTAL_INV)} recovered</div>
+                            </Card>
+                        )}
                     </div>
                 )}
 
@@ -767,6 +834,42 @@ export default function Dashboard({ user, onSignOut }) {
             )}
 
             {confirmDel && <ConfirmModal msg={`Remove: ${confirmDel.label}`} onConfirm={doDelete} onCancel={() => setConfirmDel(null)} />}
+
+            {/* ════ INVESTMENT MODAL ════ */}
+            {invModal && (
+                <Modal title={invModal === "add" ? "Add Investment" : "Edit Investment"} onClose={() => { setInvModal(null); setIF(blankI); }}>
+                    <FRow>
+                        <FGroup label="Label" style={{ flex: 2 }}>
+                            <Inp value={iF.label} onChange={e => setIF(p => ({ ...p, label: e.target.value }))} placeholder="e.g. Scooter, Insurance, Registration…" />
+                        </FGroup>
+                        <FGroup label="Icon">
+                            <select value={iF.icon} onChange={e => setIF(p => ({ ...p, icon: e.target.value }))}
+                                style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "10px 8px", color: "#111827", fontSize: 18, width: "100%", textAlign: "center" }}>
+                                {INV_ICONS.map(ic => <option key={ic} value={ic}>{ic}</option>)}
+                            </select>
+                        </FGroup>
+                    </FRow>
+                    <FRow>
+                        <FGroup label="Amount (€)">
+                            <div style={{ position: "relative" }}>
+                                <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "#9CA3AF", fontSize: 14 }}>€</span>
+                                <input type="number" value={iF.amount} onChange={e => setIF(p => ({ ...p, amount: e.target.value }))} placeholder="0.00"
+                                    style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "10px 12px 10px 26px", color: "#111827", fontSize: 14, width: "100%", fontFamily: "'DM Sans',sans-serif" }} />
+                            </div>
+                        </FGroup>
+                        <FGroup label="Date">
+                            <Inp type="date" value={iF.date} onChange={e => setIF(p => ({ ...p, date: e.target.value }))} />
+                        </FGroup>
+                    </FRow>
+                    <div style={{ marginBottom: 14 }}>
+                        <FLabel>Note (optional)</FLabel>
+                        <Inp value={iF.note} onChange={e => setIF(p => ({ ...p, note: e.target.value }))} placeholder="e.g. Bought secondhand, valid until 2026…" />
+                    </div>
+                    <Btn onClick={saveInvestment} color="#D97706" style={{ width: "100%" }}>
+                        {invModal === "add" ? "Save Investment" : "Update Investment"}
+                    </Btn>
+                </Modal>
+            )}
 
             {toast && (
                 <div className="toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: toast.ok ? "#111827" : "#DC2626", color: "#fff", borderRadius: 10, padding: "11px 22px", fontSize: 13, fontWeight: 500, zIndex: 100, whiteSpace: "nowrap", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
