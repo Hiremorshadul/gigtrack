@@ -86,43 +86,45 @@ export default function App() {
   const [resetting, setResetting] = useState(false); // true = show reset password screen
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 6000);
+    let mounted = true;
+    const timeout = setTimeout(() => { if (mounted) setLoading(false); }, 6000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        clearTimeout(timeout);
-        try {
-          // User clicked the reset-password email link
-          if (event === "PASSWORD_RECOVERY") {
-            setUser(session.user);
-            setResetting(true);
-            setLoading(false);
-            return;
-          }
-
-          if (session?.user) {
-            setUser(session.user);
-            setResetting(false);
-            const { data } = await supabase
-              .from("profiles")
-              .select("is_admin")
-              .eq("id", session.user.id)
-              .single();
-            setIsAdmin(data?.is_admin === true);
-          } else {
-            setUser(null);
-            setIsAdmin(false);
-            setResetting(false);
-          }
-        } catch (err) {
-          console.error("Auth error:", err);
-        } finally {
-          setLoading(false);
-        }
+    const loadUser = async (session) => {
+      if (!session?.user) {
+        if (mounted) { setUser(null); setIsAdmin(false); setResetting(false); setLoading(false); }
+        return;
       }
-    );
+      try {
+        if (mounted) { setUser(session.user); setResetting(false); }
+        const { data } = await supabase.from("profiles").select("is_admin").eq("id", session.user.id).single();
+        if (mounted) setIsAdmin(data?.is_admin === true);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
 
-    return () => { clearTimeout(timeout); subscription.unsubscribe(); };
+    // 1. Explicitly fetch current session on mount (fixes reload / Strict Mode issues)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted) loadUser(session);
+    });
+
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "INITIAL_SESSION") return; // Already handled by getSession
+      if (event === "PASSWORD_RECOVERY") {
+        if (mounted) { setUser(session?.user || null); setResetting(true); setLoading(false); }
+        return;
+      }
+      if (mounted) loadUser(session);
+    });
+
+    return () => { 
+      mounted = false; 
+      clearTimeout(timeout); 
+      subscription?.unsubscribe(); 
+    };
   }, []);
 
   const handleSignOut = async () => {

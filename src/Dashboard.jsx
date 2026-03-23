@@ -26,7 +26,13 @@ const CAT_COL = {
 const fmt = (n) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n ?? 0);
 const now = () => new Date().toISOString().split("T")[0];
 const netOf = (gross, platform) => DEDUCTED.includes(platform) ? gross * 0.92 : gross;
-const uid = () => crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+const uid = () => {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+};
 
 // ─── Global CSS ───────────────────────────────────────────────────────────────
 const CSS = `
@@ -136,7 +142,7 @@ export default function Dashboard({ user, onSignOut }) {
     const [invModal, setInvModal] = useState(null);
     const [confirmDel, setConfirmDel] = useState(null);
 
-    const blankE = { weekLabel: "", dateFrom: now(), platform: "Glovo", gross: "", hours: "", note: "" };
+    const blankE = { week_label: "", date: now(), platform: "Glovo", gross: "", hours: "", note: "" };
     const blankX = { date: now(), category: "Fuel / Oil", amount: "", note: "", pending: false };
     const blankI = { label: "", amount: "", icon: "🛵", note: "", date: now() };
     const [eF, setEF] = useState(blankE);
@@ -171,13 +177,13 @@ export default function Dashboard({ user, onSignOut }) {
             setEarnings(prev => [...prev, newEntry]);  // optimistic
             setEarnModal(null); notify("Earning added ✓");
             const { error } = await supabase.from("earnings").insert(newEntry);
-            if (error) { setEarnings(prev => prev.filter(e => e.id !== newEntry.id)); notify("Failed to save", false); }
+            if (error) { setEarnings(prev => prev.filter(e => e.id !== newEntry.id)); notify("Failed to save: " + error.message, false); console.error(error); }
         } else {
             const updated = { ...entry, id: earnModal.id, user_id: user.id };
             setEarnings(prev => prev.map(e => e.id === earnModal.id ? updated : e));
             setEarnModal(null); notify("Earning updated ✓");
             const { error } = await supabase.from("earnings").update(entry).eq("id", earnModal.id);
-            if (error) notify("Failed to update — refresh page", false);
+            if (error) notify("Failed to update: " + error.message, false);
         }
         setEF(blankE);
     };
@@ -191,13 +197,13 @@ export default function Dashboard({ user, onSignOut }) {
             setExpenses(prev => [...prev, newEntry]);
             setExpModal(null); notify("Expense added ✓");
             const { error } = await supabase.from("expenses").insert(newEntry);
-            if (error) { setExpenses(prev => prev.filter(e => e.id !== newEntry.id)); notify("Failed to save", false); }
+            if (error) { setExpenses(prev => prev.filter(e => e.id !== newEntry.id)); notify("Failed to save: " + error.message, false); console.error(error); }
         } else {
             const updated = { ...entry, id: expModal.id, user_id: user.id };
             setExpenses(prev => prev.map(e => e.id === expModal.id ? updated : e));
             setExpModal(null); notify("Expense updated ✓");
             const { error } = await supabase.from("expenses").update(entry).eq("id", expModal.id);
-            if (error) notify("Failed to update — refresh page", false);
+            if (error) notify("Failed to update: " + error.message, false);
         }
         setXF(blankX);
     };
@@ -212,13 +218,13 @@ export default function Dashboard({ user, onSignOut }) {
             setInvestments(prev => [...prev, newEntry]);
             setInvModal(null); notify("Investment added ✓");
             const { error } = await supabase.from("investments").insert(newEntry);
-            if (error) { setInvestments(prev => prev.filter(i => i.id !== newEntry.id)); notify("Failed to save", false); }
+            if (error) { setInvestments(prev => prev.filter(i => i.id !== newEntry.id)); notify("Failed to save: " + error.message, false); console.error(error); }
         } else {
             const updated = { ...entry, id: invModal.id, user_id: user.id };
             setInvestments(prev => prev.map(i => i.id === invModal.id ? updated : i));
             setInvModal(null); notify("Investment updated ✓");
             const { error } = await supabase.from("investments").update(entry).eq("id", invModal.id);
-            if (error) notify("Failed to update — refresh page", false);
+            if (error) notify("Failed to update: " + error.message, false);
         }
         setIF(blankI);
     };
@@ -262,7 +268,7 @@ export default function Dashboard({ user, onSignOut }) {
     const weekMap = useMemo(() => {
         const m = {};
         allNet.forEach(e => {
-            const k = e.weekLabel || e.dateFrom || e.date;
+            const k = e.week_label || e.date;
             if (!m[k]) m[k] = { label: k, platforms: {}, net: 0, gross: 0 };
             m[k].platforms[e.platform] = (m[k].platforms[e.platform] || 0) + e.netAmt;
             m[k].net += e.netAmt; m[k].gross += e.gross;
@@ -516,7 +522,7 @@ export default function Dashboard({ user, onSignOut }) {
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
                                             <PBadge platform={e.platform} />{DEDUCTED.includes(e.platform) && <DBadge />}
-                                            <span style={{ fontSize: 11, color: "#9CA3AF" }}>{e.weekLabel || e.dateFrom || e.date}</span>
+                                            <span style={{ fontSize: 11, color: "#9CA3AF" }}>{e.week_label || e.date}</span>
                                         </div>
                                         {e.hours && <div style={{ fontSize: 11, color: "#9CA3AF" }}>{e.hours}h · {fmt(e.netAmt / e.hours)}/hr</div>}
                                         {e.note && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 1 }}>{e.note}</div>}
@@ -780,15 +786,15 @@ export default function Dashboard({ user, onSignOut }) {
             {earnModal && (
                 <Modal title={earnModal === "add" ? "Add Earning" : "Edit Earning"} onClose={() => { setEarnModal(null); setEF(blankE); }}>
                     <FRow>
-                        <FGroup label="Week / Period"><Inp value={eF.weekLabel} onChange={e => setEF(p => ({ ...p, weekLabel: e.target.value }))} placeholder="e.g. 16–22 Mar" /></FGroup>
-                        <FGroup label="Date"><Inp type="date" value={eF.dateFrom} onChange={e => setEF(p => ({ ...p, dateFrom: e.target.value }))} /></FGroup>
+                        <FGroup label="Week / Period"><Inp value={eF.week_label} onChange={e => setEF(p => ({ ...p, week_label: e.target.value }))} placeholder="e.g. 16–22 Mar" /></FGroup>
+                        <FGroup label="Date"><Inp type="date" value={eF.date} onChange={e => setEF(p => ({ ...p, date: e.target.value }))} /></FGroup>
                     </FRow>
                     <FRow>
                         <FGroup label="Platform"><Sel value={eF.platform} onChange={e => setEF(p => ({ ...p, platform: e.target.value }))} options={PLATFORMS} /></FGroup>
                         <FGroup label="Gross Amount">
                             <div style={{ position: "relative" }}>
                                 <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "#9CA3AF", fontSize: 14 }}>€</span>
-                                <input type="number" value={eF.gross} onChange={e => setEF(p => ({ ...p, gross: e.target.value }))} placeholder="0.00"
+                                <input type="text" inputMode="decimal" value={eF.gross} onChange={e => setEF(p => ({ ...p, gross: e.target.value.replace(/,/g, '.') }))} placeholder="0.00"
                                     style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "10px 12px 10px 26px", color: "#111827", fontSize: 14, width: "100%", fontFamily: "'DM Sans',sans-serif" }} />
                             </div>
                         </FGroup>
